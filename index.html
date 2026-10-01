@@ -67,7 +67,7 @@ footer{color:var(--muted);font-size:12px;padding:24px 0 40px}
 <div id="healthDot" class="dot" title="backend health"></div>
 <div>
 <h1>Dots Monitor <span class="muted">/ 自律AI 監視ダッシュボード</span></h1>
-<div class="sub" id="healthLine">API未接続 — デモ表示中 · Oracle無料VM集約構成 · GitHub Pages静的公開</div>
+<div class="sub" id="healthLine">本番接続中… · GitHub Pages静的公開＋自宅API</div>
 </div>
 <div class="spacer"></div>
 <button class="btn" id="btnSettings">接続設定</button>
@@ -84,7 +84,7 @@ footer{color:var(--muted);font-size:12px;padding:24px 0 40px}
 
 <main class="wrap">
 <div class="banner">
-<b>公開メモ：</b>このページ自体はGitHub Pagesで公開してOKな作りです。実データは <code>APIベースURL＋トークン</code> が無いと出ません（トークンはlocalStorageのみ・リポジトリに含めない）。初期状態はデモデータ表示です。監視APIはTailscale内かBasic認証付きで運用してください。LINE Webhookの443だけ公開し、<code>:8080</code> 系は公開しないこと。
+<b>本番用：</b>このページは実データのみ表示します（デモなし）。右上「接続設定」で <code>APIベースURL＋トークン</code> を入力（トークンはlocalStorageのみ・リポジトリに含めない）。監視APIはTailscale内かBasic認証付きで運用してください。LINE Webhookの443だけ公開し、<code>:8080</code> 系は公開しないこと。
 </div>
 
 <!-- OVERVIEW -->
@@ -112,6 +112,12 @@ footer{color:var(--muted);font-size:12px;padding:24px 0 40px}
 <h2>新規タスク投入（指示出し）</h2>
 <label>種別</label>
 <select id="newKind"><option value="browser">browser-use（Web調査・自動化）</option><option value="pc">pc-task（自宅PC整理・検索）</option><option value="research">proactive research（読み取り専用）</option></select>
+<label style="margin-top:8px;display:block">モデル</label>
+<select id="newModel">
+<option value="fast">会話用（Gemini Flash-Lite・軽量高速）</option>
+<option value="think">コーディング用（Qwen3 27B・推論）</option>
+<option value="deep">思考モード（DeepSeek蒸留70B・数学・難問）</option>
+</select>
 <label style="margin-top:8px;display:block">指示文</label>
 <textarea id="newText" rows="4" placeholder="例：Downloads直下のPDFを日付＋種類で振り分け提案して（実行は承認後）"></textarea>
 <div class="row" style="margin-top:8px"><button class="btn primary" id="btnEnqueue">キューに追加</button><span class="muted">PC宛は Dry-run→承認が必須</span></div>
@@ -159,14 +165,13 @@ footer{color:var(--muted);font-size:12px;padding:24px 0 40px}
 <div class="box">
 <h3 style="margin:0 0 8px">接続設定（localStorageのみ保存）</h3>
 <label>APIベースURL（例：http://100.x.y.z:8080 または https://dots-api.example.com）</label>
-<input id="cfgBase" placeholder="未設定ならデモ表示">
+<input id="cfgBase" placeholder="http://127.0.0.1:8080">
 <label style="margin-top:8px;display:block">APIトークン（Bearer）</label>
 <input id="cfgToken" type="password" placeholder="リポジトリに書かない">
 <label style="margin-top:8px;display:block">更新間隔（秒）</label>
 <input id="cfgInterval" type="number" min="5" value="15">
 <div class="row" style="margin-top:12px">
 <button class="btn primary" id="btnSave">保存</button>
-<button class="btn" id="btnDemo">デモに戻す</button>
 <button class="btn" id="btnClose">閉じる</button>
 </div>
 <p class="muted">期待API：<code>GET /api/v1/overview /agents /tasks /server /containers /uptime /logs?tail=100 /ai/runs /ai/timeline /llm/quota</code>、<code>POST /api/v1/tasks /tasks/:id/approve /reject /runs/:id/kill|pause|resume|retry|rollback /notify/test</code>。CORS許可と <code>Authorization: Bearer</code> 必須。</p>
@@ -178,58 +183,23 @@ footer{color:var(--muted);font-size:12px;padding:24px 0 40px}
 "use strict";
 const $=s=>document.querySelector(s);
 const store={get:(k,d)=>{try{const v=localStorage.getItem(k);return v??d}catch{return d}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch{}}};
-let CFG={base:store.get("dots.apiBase",""),token:store.get("dots.token",""),interval:parseInt(store.get("dots.interval","15"),10)||15};
-let DEMO=!CFG.base;
+let CFG={base:store.get("dots.apiBase","http://127.0.0.1:8080"),token:store.get("dots.token",""),interval:parseInt(store.get("dots.interval","15"),10)||15};
 
-// ---------- demo data (matches backend schema) ----------
-function demoData(){
-  const now=Date.now();
+// ---------- empty state（本番専用：デモ表示なし・API実データのみ） ----------
+function emptyState(msg){
   return {
-    overview:{agentsWorking:2,agentsStale:0,approvals:1,quotaUsedGemini:312,quotaTotalGemini:1500,quotaUsedGroq:1240,quotaTotalGroq:14400,cpu:23,mem:54,disk:61},
-    agents:[
-      {id:"browser-01",role:"browser-use",model:"gemini-2.5-flash-lite",status:"working",task:"為替ニュース3件要約→表抽出",mins:6},
-      {id:"browser-02",role:"browser-use",model:"groq/qwen3.6-27b",status:"working",task:"指定URL巡回・差分検知",mins:3},
-      {id:"pc-agent",role:"pc-task",model:"via-LiteLLM",status:"idle",task:"待機（Downloads提案済1件）",mins:0},
-      {id:"scheduler",role:"proactive",model:"read-only",status:"idle",task:"次回 09:00 定期チェック",mins:0}
-    ],
-    concurrency:[1,1,2,2,1,2,3,2,2,1,2,2],
-    tasks:[
-      {id:"T-1042",kind:"pc",title:"Downloads直下PDF 14件を日付＋種類で振り分け",status:"awaiting_approval",detail:"FROM ~/Downloads → ~/Archive/2026-10/ 移動14件・削除0・.bak保持"},
-      {id:"T-1041",kind:"browser",title:"為替＋日経朝刊ドラフト",status:"working",detail:"3/5サイト完了"},
-      {id:"T-1040",kind:"research",title:"旅行変更検知（読取のみ）",status:"done",detail:"変更なし"}
-    ],
-    containers:[
-      {name:"litellm",cpu:"2%",mem:"380MB",status:"up"},
-      {name:"orchestrator",cpu:"6%",mem:"720MB",status:"up"},
-      {name:"browser ×2",cpu:"14%",mem:"1.8GB",status:"up"},
-      {name:"dashboard",cpu:"1%",mem:"210MB",status:"up"},
-      {name:"voice",cpu:"0%",mem:"340MB",status:"idle"},
-      {name:"memory-chroma",cpu:"1%",mem:"410MB",status:"up"}
-    ],
-    uptime:[
-      {target:"GET /healthz",ok:true,ms:18},
-      {target:"POST LINE webhook :443",ok:true,ms:42},
-      {target:"LiteLLM :8000",ok:true,ms:11},
-      {target:"dashboard :8080",ok:true,ms:9}
-    ],
-    cpuHist:[18,21,19,24,23,26,22,23,21,24,23,22],
-    memHist:[51,52,53,54,54,55,54,54,53,54,54,54],
-    logs:`[${new Date().toISOString()}] orchestrator run T-1041 step 4/5 ok (1.2s)\n[${new Date().toISOString()}] browser-02 diff detected: 1 page changed\n[${new Date().toISOString()}] pc-agent poll ok, queue=1 awaiting_approval\n[${new Date().toISOString()}] litellm failover ready: gemini→groq→openrouter`,
-    timeline:[
-      {cls:"ok",t:"10:02:11",h:"browser-01 起動（fan-out）",d:"gemini-2.5-flash-lite / 5サイト巡回開始"},
-      {cls:"",t:"10:02:40",h:"browser-02 並列合流",d:"qwen3.6-27b / 差分セレクタ2種で取得"},
-      {cls:"warn",t:"10:03:02",h:"pc-agent 提案生成",d:"移動14件・削除0 — 承認待ち T-1042"},
-      {cls:"ok",t:"10:03:20",h:"research 読取のみ完了",d:"送信・書換なし（制限通り）"}
-    ],
-    aiStats:{tokensToday:"38,412",quota:"Gemini 312/1500 · Groq 1240/14400",memory:"Chroma 1,284件 / SQLite runs 312",cost:"¥0（無料枠内）"},
-    think:`browser-01: 要約は3文に圧縮、表は[日付,見出し,URL]のみ\nbrowser-02: セレクタBが404→Aに退避、再試行1で成功\npolicy: T-1042はL2（移動）のため自動実行せず承認キューへ`,
-    proactive:`09:00 scheduler armed\n- Gmail 未読 3件を件名のみ走査（本文取得なし）\n- カレンダー変更なし\n- 送信・書換 0件（read-only遵守）`
+    overview:{agentsWorking:0,agentsStale:0,approvals:0,quotaUsedGemini:0,quotaTotalGemini:1500,quotaUsedGroq:0,quotaTotalGroq:14400,cpu:0,mem:0,disk:0},
+    agents:[],concurrency:[],tasks:[],containers:[],uptime:[],
+    cpuHist:[],memHist:[],
+    logs:msg||"データなし",
+    timeline:[],
+    aiStats:{tokensToday:"—",quota:"—",memory:"—",cost:"—"},
+    think:"—",proactive:"—"
   };
 }
 
 // ---------- fetch layer ----------
 async function api(path,opts={}){
-  if(DEMO) return null;
   const res=await fetch(CFG.base.replace(/\/$/,"")+path,{
     ...opts,
     headers:{...(opts.headers||{}),...(CFG.token?{Authorization:"Bearer "+CFG.token}:{}),"Content-Type":"application/json"}
@@ -238,7 +208,7 @@ async function api(path,opts={}){
   return res.json();
 }
 async function post(path,body={}){
-  if(DEMO){toast("デモ中のため送信しません（API未接続）");return {demo:true}}
+  if(!CFG.base){toast("API未設定：右上「接続設定」からURL＋トークンを入力");return null}
   return api(path,{method:"POST",body:JSON.stringify(body)});
 }
 function toast(msg){
@@ -259,26 +229,22 @@ function badge(s){
 }
 
 // ---------- render ----------
-let D=demoData();
+let D=emptyState("読込中…");
 async function load(){
   try{
-    if(!DEMO){
-      const [ov,ag,tk,sv,ct,up,lg,tl]=await Promise.all([
-        api("/api/v1/overview"),api("/api/v1/agents"),api("/api/v1/tasks"),
-        api("/api/v1/server"),api("/api/v1/containers"),api("/api/v1/uptime"),
-        api("/api/v1/logs?tail=100"),api("/api/v1/ai/timeline")
-      ]);
-      D={overview:ov,agents:ag.agents||ag,tasks:tk.tasks||tk,containers:ct.containers||ct,uptime:up.checks||up,
-        cpuHist:sv.cpuHist||D.cpuHist,memHist:sv.memHist||D.memHist,logs:typeof lg==="string"?lg:(lg.logs||D.logs),
-        timeline:tl.timeline||D.timeline,concurrency:sv.concurrency||D.concurrency,
-        aiStats:tl.stats||D.aiStats,think:tl.think||D.think,proactive:tl.proactive||D.proactive};
-      $("#healthDot").className="dot";$("#healthLine").textContent="API接続OK · "+CFG.base+" · "+new Date().toLocaleString();
-    }else{
-      D=demoData();
-      $("#healthDot").className="dot deg";$("#healthLine").textContent="API未接続 — デモ表示中 · 右上「接続設定」からOracle VMのURL＋トークンを入力";
-    }
+    const [ov,ag,tk,sv,ct,up,lg,tl]=await Promise.all([
+      api("/api/v1/overview"),api("/api/v1/agents"),api("/api/v1/tasks"),
+      api("/api/v1/server"),api("/api/v1/containers"),api("/api/v1/uptime"),
+      api("/api/v1/logs?tail=100"),api("/api/v1/ai/timeline")
+    ]);
+    D={overview:ov,agents:ag.agents||ag,tasks:tk.tasks||tk,containers:ct.containers||ct,uptime:up.checks||up,
+      cpuHist:sv.cpuHist||[],memHist:sv.memHist||[],logs:typeof lg==="string"?lg:(lg.logs||"—"),
+      timeline:tl.timeline||[],concurrency:sv.concurrency||[],
+      aiStats:tl.stats||D.aiStats,think:tl.think||"—",proactive:tl.proactive||"—"};
+    $("#healthDot").className="dot";$("#healthLine").textContent="API接続OK · "+CFG.base+" · "+new Date().toLocaleString();
   }catch(e){
-    $("#healthDot").className="dot down";$("#healthLine").textContent="API接続失敗："+e.message+"（デモ継続）";
+    D=emptyState("API接続失敗："+e.message+" — APIサーバー起動と接続設定を確認");
+    $("#healthDot").className="dot down";$("#healthLine").textContent="API接続失敗："+e.message;
   }
   render();
 }
@@ -293,7 +259,7 @@ function render(){
   $("#ovLoadSub").textContent=`MEM ${o.mem}% / DISK ${o.disk}%`;
   $("#agentCards").innerHTML=D.agents.map(a=>`<div class="card" style="background:var(--panel2)"><div class="row"><b>${a.id}</b><span class="spacer"></span>${badge(a.status)}</div><div class="muted">${a.role} · ${a.model}</div><div style="margin-top:6px">${a.task}</div><div class="muted">作業 ${a.mins}分</div></div>`).join("");
   spark("#sparkConcurrency",D.concurrency,"#a371f7");
-  $("#taskRows").innerHTML=D.tasks.map(t=>`<tr><td><b>${t.id}</b><br><span class="muted">${t.kind}</span></td><td>${t.title}<br><span class="muted">${t.detail||""}</span></td><td>${badge(t.status)}</td><td>
+  $("#taskRows").innerHTML=D.tasks.map(t=>`<tr><td><b>${t.id}</b><br><span class="muted">${t.kind}${t.model?` · ${t.model}`:""}</span></td><td>${t.title}<br><span class="muted">${t.detail||""}</span></td><td>${badge(t.status)}</td><td>
     <button class="btn" data-act="approve" data-id="${t.id}">承認</button><button class="btn" data-act="reject" data-id="${t.id}">却下</button><button class="btn" data-act="retry" data-id="${t.id}">リトライ</button><button class="btn danger" data-act="kill" data-id="${t.id}">停止</button>
   </td></tr>`).join("");
   $("#svCpu").textContent=o.cpu+"%";$("#svMem").textContent=o.mem+"%";$("#svDisk").textContent=o.disk+"%";
@@ -324,9 +290,9 @@ $("#taskRows").addEventListener("click",async e=>{
   }catch(err){toast("失敗："+err.message)}finally{btn.disabled=false}
 });
 $("#btnEnqueue").addEventListener("click",async()=>{
-  const kind=$("#newKind").value,text=$("#newText").value.trim();
+  const kind=$("#newKind").value,model=$("#newModel").value,text=$("#newText").value.trim();
   if(!text){toast("指示文を入力してください");return}
-  await post("/api/v1/tasks",{kind,text});$("#newText").value="";toast("キューに追加しました");await load();
+  await post("/api/v1/tasks",{kind,model,text});$("#newText").value="";toast("キューに追加しました");await load();
 });
 $("#btnNotify").addEventListener("click",async()=>{await post("/api/v1/notify/test",{});toast("通知テストを送りました")});
 $("#btnRefresh").addEventListener("click",load);
@@ -336,13 +302,9 @@ $("#btnSettings").addEventListener("click",()=>{
 });
 $("#btnClose").addEventListener("click",()=>$("#settingsModal").classList.remove("open"));
 $("#btnSave").addEventListener("click",()=>{
-  CFG={base:$("#cfgBase").value.trim(),token:$("#cfgToken").value.trim(),interval:parseInt($("#cfgInterval").value,10)||15};
+  CFG={base:$("#cfgBase").value.trim()||"http://127.0.0.1:8080",token:$("#cfgToken").value.trim(),interval:parseInt($("#cfgInterval").value,10)||15};
   store.set("dots.apiBase",CFG.base);store.set("dots.token",CFG.token);store.set("dots.interval",String(CFG.interval));
-  DEMO=!CFG.base;$("#settingsModal").classList.remove("open");restart();toast(DEMO?"デモ表示に戻しました":"API接続に切替ました");
-});
-$("#btnDemo").addEventListener("click",()=>{
-  CFG={base:"",token:"",interval:15};store.set("dots.apiBase","");store.set("dots.token","");
-  DEMO=true;$("#settingsModal").classList.remove("open");restart();
+  $("#settingsModal").classList.remove("open");restart();toast("API接続に切替ました");
 });
 let timer=null;
 function restart(){clearInterval(timer);load();timer=setInterval(()=>{if(!document.hidden)load()},CFG.interval*1000)}
