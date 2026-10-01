@@ -268,7 +268,7 @@ async function load(){
         api("/api/v1/server"),api("/api/v1/containers"),api("/api/v1/uptime"),
         api("/api/v1/logs?tail=100"),api("/api/v1/ai/timeline")
       ]);
-      D={overview:ov,agents:ag.tasks||ag,tasks:tk.tasks||tk,containers:ct.containers||ct,uptime:up.checks||up,
+      D={overview:ov,agents:ag.agents||ag,tasks:tk.tasks||tk,containers:ct.containers||ct,uptime:up.checks||up,
         cpuHist:sv.cpuHist||D.cpuHist,memHist:sv.memHist||D.memHist,logs:typeof lg==="string"?lg:(lg.logs||D.logs),
         timeline:tl.timeline||D.timeline,concurrency:sv.concurrency||D.concurrency,
         aiStats:tl.stats||D.aiStats,think:tl.think||D.think,proactive:tl.proactive||D.proactive};
